@@ -51,12 +51,19 @@ echo "Newest nightly: $LATEST ($(git log -1 --format=%cs "$LATEST"))"
 
 if [ "$LATEST" != "$CURRENT" ]; then
   echo "Commits:        $(git rev-list --count "$CURRENT..$LATEST")"
-  MIGRATIONS=$(git diff --name-status "$CURRENT" "$LATEST" -- apps/server/src/persistence/Migrations)
-  if [ -n "$MIGRATIONS" ]; then
-    echo "Database:       CHANGES (one-way; the install step backs up your data first)"
-    printf '%s\n' "$MIGRATIONS" | sed 's/^/  /'
+  # Only added migrations touch an existing database. Applied ones never rerun, so edits to them
+  # (such as a library-wide import rename) are only counted.
+  MIG=apps/server/src/persistence/Migrations
+  NEW_MIGRATIONS=$(git diff --name-only --diff-filter=A "$CURRENT" "$LATEST" -- "$MIG" | grep -v '\.test\.ts$' || true)
+  EDITED=$(git diff --name-only --diff-filter=M "$CURRENT" "$LATEST" -- "$MIG" | grep -vc '\.test\.ts$' || true)
+  if [ -n "$NEW_MIGRATIONS" ]; then
+    echo "Database:       $(printf '%s\n' "$NEW_MIGRATIONS" | wc -l | tr -d ' ') new migration(s): one-way, and the install step backs up your data first"
+    printf '%s\n' "$NEW_MIGRATIONS" | sed "s|^$MIG/|  |"
   else
-    echo "Database:       no changes (safe to roll back)"
+    echo "Database:       no new migrations (safe to roll back)"
+  fi
+  if [ "$EDITED" -gt 0 ]; then
+    echo "                $EDITED existing migration files edited; they never rerun, so your data is unaffected"
   fi
   BUILD_FILES=$(git diff --name-only "$CURRENT" "$LATEST" -- package.json pnpm-workspace.yaml \
     scripts/build-desktop-artifact.ts apps/desktop/package.json | tr '\n' ' ')
