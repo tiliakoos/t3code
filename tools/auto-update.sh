@@ -16,6 +16,8 @@ APP="/Applications/T3 Code (Nightly).app"
 ID=com.t3tools.t3code
 KEEP=3
 POSTPONE_SECONDS=7200
+# After a failure, so a lasting problem does not rebuild or show the dialog every 30 minutes.
+BACKOFF_SECONDS=21600
 
 # To stderr, so functions that print a result (ask) keep it clean; `run` sends both to the log.
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >&2; }
@@ -29,6 +31,7 @@ notify_once() {
     notify "$*"
   fi
 }
+hold() { echo $(($(date +%s) + $1)) >"$STATE/postponed-until"; }
 app_running() { osascript -e "application id \"$ID\" is running" 2>/dev/null | grep -q true; }
 installed_version() { /usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist" 2>/dev/null || echo none; }
 
@@ -153,6 +156,7 @@ run() {
   if ! "$REPO/tools/update.sh" --no-install >"$STATE/last-build.log" 2>&1; then
     log "build failed: $(tail -n 2 "$STATE/last-build.log" | tr '\n' ' ')"
     notify_once "failed:$newest" "Updating to $newest stopped before installing; nothing changed. Ask an agent to check $LOG."
+    hold "$BACKOFF_SECONDS"
     exit 1
   fi
 
@@ -160,11 +164,15 @@ run() {
   idle || exit 0
   case "$(ask "$newest")" in
     postpone)
-      echo $(($(date +%s) + POSTPONE_SECONDS)) >"$STATE/postponed-until"
+      hold "$POSTPONE_SECONDS"
       log "postponed by Nick for $((POSTPONE_SECONDS / 3600)) hours"
       exit 0
       ;;
-    error) exit 0 ;;
+    error)
+      notify_once dialog-failed "T3 Code $newest is ready, but the update prompt could not be shown. Ask an agent to check $LOG."
+      hold "$BACKOFF_SECONDS"
+      exit 0
+      ;;
   esac
   idle || exit 0
 
@@ -172,11 +180,13 @@ run() {
   if ! "$REPO/tools/install-built-app.sh" --yes >>"$STATE/last-build.log" 2>&1; then
     log "install failed: $(tail -n 2 "$STATE/last-build.log" | tr '\n' ' ')"
     notify_once "install-failed:$newest" "Installing $newest stopped; T3 Code was not changed. Ask an agent to check $LOG."
+    hold "$BACKOFF_SECONDS"
     exit 1
   fi
   if [ "$(installed_version)" != "$newest" ]; then
     log "install finished but the app reports $(installed_version)"
     notify_once "mismatch:$newest" "T3 Code reports $(installed_version) after updating to $newest. Ask an agent to check."
+    hold "$BACKOFF_SECONDS"
     exit 1
   fi
   log "installed $newest"
