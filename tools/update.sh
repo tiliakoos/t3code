@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Bring the daily driver up to upstream's newest nightly tag, build it, and offer to install it.
 # Personal file: lives on features/tiliakoos only, never in a PR diff.
-# Usage: tools/update.sh [--check] [--yes]
-#   --check  report only: fetches tags, changes nothing, prints a STATUS= line for agents
-#   --yes    install without asking
+# Usage: tools/update.sh [--check] [--yes] [--no-install]
+#   --check       report only: fetches tags, changes nothing, prints a STATUS= line for agents
+#   --yes         install without asking
+#   --no-install  merge and build, then stop (tools/auto-update.sh installs on its own terms)
 # Building is safe while T3 Code runs. Installing quits it, so run this from Terminal.app;
 # inside T3 Code it stops after the build.
 set -euo pipefail
@@ -13,11 +14,13 @@ BRANCH=features/tiliakoos
 APP="/Applications/T3 Code (Nightly).app"
 MODE=update
 YES=
+NO_INSTALL=
 for arg in "$@"; do
   case "$arg" in
     --check) MODE=check ;;
     --yes) YES=--yes ;;
-    *) echo "usage: tools/update.sh [--check] [--yes]"; exit 2 ;;
+    --no-install) NO_INSTALL=1 ;;
+    *) echo "usage: tools/update.sh [--check] [--yes] [--no-install]"; exit 2 ;;
   esac
 done
 
@@ -96,7 +99,7 @@ if [ "$STATUS" = update-available ]; then
   if git rev-parse -q --verify "refs/heads/$BACKUP" >/dev/null; then BACKUP="$BACKUP-$(date +%H%M)"; fi
   git branch "$BACKUP" "$BRANCH"
   if ! git merge -q --no-edit "$LATEST"; then
-    git merge --abort
+    git merge --abort 2>/dev/null || true
     git branch -q -D "$BACKUP"
     echo "Stopped: merging $LATEST conflicts with your changes. Nothing was changed."
     echo "Ask an agent with the t3code-update skill to resolve it."
@@ -117,4 +120,8 @@ else
   git rev-parse HEAD >"$STAMP_FILE"
 fi
 
+if [ -n "$NO_INSTALL" ]; then
+  echo "Built; not installing (--no-install)."
+  exit 0
+fi
 tools/install-built-app.sh $YES
