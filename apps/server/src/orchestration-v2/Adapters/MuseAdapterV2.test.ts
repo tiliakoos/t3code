@@ -32,16 +32,16 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import * as ServerConfig from "../../config.ts";
-import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import type { MuseItem } from "../../provider/museProtocol.ts";
 import type { MuseSdkHost } from "../../provider/museSdk.ts";
-import * as IdAllocator from "../IdAllocator.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import {
   ProviderAdapterV2RuntimePolicy,
   type ProviderAdapterV2Event,
   type ProviderAdapterV2TurnInput,
-} from "../ProviderAdapter.ts";
-import type { ProviderContinuationRequest } from "../ProviderContinuationRequests.ts";
+} from "@t3tools/provider-core/server/ProviderAdapter";
+import type { ProviderContinuationRequest } from "@t3tools/provider-core/server/continuationRequests";
 import { makeMuseAdapterV2, type MuseAdapterV2Options } from "./MuseAdapterV2.ts";
 
 const testLayer = Layer.mergeAll(
@@ -806,6 +806,65 @@ describe("MuseAdapterV2", () => {
       // The user turn took it, so the continuation is not dispatched.
       const dispatched = yield* offers[0]!.dispatchIfCurrent!(Effect.succeed("run"));
       assert.isTrue(Option.isNone(dispatched));
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("approves a workflow child's approval in full access after its turn ended", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakeMuse();
+      const harness = yield* makeHarness(fake);
+      const { nativeId } = yield* startConversation(harness, fake);
+      yield* fake.emit("turn/completed", { turnId: nativeId, terminal: "completed" });
+      yield* harness.takeEvent("turn.terminal");
+      // Muse runs workflow children without the session's allowAll mode.
+      const childApproval = { ...approval("child-run-1"), subagentOrigin: { subagentId: "a7" } };
+      yield* fake.emit("approval/requested", childApproval);
+      const asked = yield* harness.takeEvent("runtime_request.updated");
+      assert.strictEqual(asked.runtimeRequest.status, "pending");
+      assert.isNull(asked.runtimeRequest.providerTurnId);
+      const decision = yield* fake.takeCall("approval/decide");
+      assert.strictEqual(decision.params.choiceId, "once");
+      yield* fake.emit("approval/resolved", childApproval);
+      const resolved = yield* harness.takeEvent("runtime_request.updated");
+      assert.strictEqual(resolved.runtimeRequest.status, "resolved");
+      assert.strictEqual(resolved.runtimeRequest.decision, "accept");
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("keeps a workflow child's approval pending for the user past the turn's end", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakeMuse();
+      const policy = ProviderAdapterV2RuntimePolicy.make({
+        ...runtimePolicy,
+        runtimeMode: "approval-required",
+      });
+      const harness = yield* makeHarness(
+        fake,
+        INSTANCE_ID,
+        undefined,
+        undefined,
+        undefined,
+        policy,
+      );
+      const { nativeId } = yield* startConversation(harness, fake);
+      const childApproval = { ...approval("child-run-1"), subagentOrigin: { subagentId: "a7" } };
+      yield* fake.emit("approval/requested", childApproval);
+      const asked = yield* harness.takeEvent("runtime_request.updated");
+      assert.isNull(asked.runtimeRequest.providerTurnId);
+      yield* fake.emit("turn/completed", { turnId: nativeId, terminal: "completed" });
+      yield* harness.takeEvent("turn.terminal");
+      assert.isFalse(
+        harness.allEvents.some(
+          (event) =>
+            event.type === "runtime_request.updated" && event.runtimeRequest.status !== "pending",
+        ),
+      );
+      yield* harness.runtime.respondToRuntimeRequest({
+        requestId: asked.runtimeRequest.id,
+        decision: "decline",
+      });
+      const decision = yield* fake.takeCall("approval/decide");
+      assert.strictEqual(decision.params.choiceId, "deny");
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 
