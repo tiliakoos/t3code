@@ -112,7 +112,7 @@ import {
 import type { ServerProviderShape } from "@t3tools/provider-core/server/snapshot";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import { T3_CODE_ORCHESTRATION_INSTRUCTIONS } from "@t3tools/provider-core/server/orchestrationInstructions";
-import { buildRuntimeInstructions } from "../../provider/RuntimeInstructions.ts";
+import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
 import {
   mcpToolPresentation,
   normalizeMcpText,
@@ -124,20 +124,23 @@ import {
   makeProviderRetryTurnItem,
 } from "@t3tools/provider-core/server/failure";
 import { turnScopedSelectionTransition } from "@t3tools/provider-core/server/selectionTransition";
-import { providerMessageTextWithAttachmentPaths } from "../AttachmentPrompt.ts";
+import { providerMessageTextWithAttachmentPaths } from "@t3tools/provider-core/server/attachmentPrompt";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import {
   ProviderAdapterDriverCreateError,
   type ProviderAdapterDriver,
   type ProviderAdapterDriverCreateInput,
 } from "@t3tools/provider-core/server/adapterDriver";
-import { type BackgroundWorkReport, backgroundWorkNotification } from "../Notification.ts";
+import {
+  type BackgroundWorkReport,
+  backgroundWorkNotification,
+} from "@t3tools/provider-core/server/notification";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/continuationRequests";
 import {
   makeSubagentChildThread,
   makeSubagentConversationArtifacts,
   subagentThreadTitle,
-} from "../SubagentProjection.ts";
+} from "@t3tools/provider-core/server/subagentProjection";
 
 export const CLAUDE_PROVIDER = ProviderDriverKind.make("claudeAgent");
 export const CLAUDE_AGENT_SDK_QUERY_PROTOCOL = "claude-agent-sdk.query" as const;
@@ -1344,7 +1347,8 @@ const makeClaudeUserMessageWithAttachments = Effect.fnUntraced(function* (input:
   const textWithAttachmentPaths = providerMessageTextWithAttachmentPaths({
     text: input.text,
     attachments: input.attachments,
-    attachmentsDir: input.attachmentsDir,
+    resolveAttachmentPath: (attachment) =>
+      resolveAttachmentPath({ attachmentsDir: input.attachmentsDir, attachment }),
   });
 
   const dispatch =
