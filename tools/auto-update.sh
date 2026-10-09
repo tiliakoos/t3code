@@ -14,7 +14,7 @@ STATE="$HOME/Library/Application Support/t3code-auto-update"
 DB="$HOME/.t3/userdata/statev2.sqlite"
 APP="/Applications/T3 Code (Nightly).app"
 ID=com.t3tools.t3code
-KEEP=3
+KEEP_DAYS=3
 POSTPONE_SECONDS=7200
 # After a failure, so a lasting problem does not rebuild or show the dialog every 30 minutes.
 BACKOFF_SECONDS=21600
@@ -81,20 +81,40 @@ ask() {
   esac
 }
 
-# Keep the newest $KEEP data backups and backup branches. Stamps sort chronologically.
+# Reads "day name" lines, oldest first, and prints the names to delete. Kept: the newest, which
+# undoes the last install, and the earliest of each of the newest $KEEP_DAYS days, which undoes
+# all of that day's installs. So several installs in one night do not push out older days.
+stale() {
+  awk -v keep="$KEEP_DAYS" '
+    { day[NR] = $1; name[NR] = substr($0, length($1) + 2) }
+    END {
+      kept[NR] = 1
+      for (i = NR; i >= 1 && days < keep; i--)
+        if (day[i] != day[i - 1]) { kept[i] = 1; days++ }
+      for (i = 1; i <= NR; i++) if (!kept[i]) print name[i]
+    }'
+}
+
+# Prunes data backups (stamped YYYYMMDD-HHMM, so they sort chronologically) and backup branches
+# (named by the day they were made, MMDD; a bare name is that day's first) with `stale`.
 prune() {
   shopt -s nullglob
-  local prefix backups i branch
+  local prefix backup stamp branch day
   for prefix in "$HOME/.t3/userdata.bak-" "$HOME/Library/Application Support/t3code-v2.bak-"; do
-    backups=("$prefix"[0-9]*)
-    for ((i = 0; i < ${#backups[@]} - KEEP; i++)); do
-      rm -rf "${backups[i]}"
-      log "pruned ${backups[i]}"
+    for backup in "$prefix"[0-9]*; do
+      stamp=${backup#"$prefix"}
+      echo "${stamp:0:8} $backup"
+    done | stale | while IFS= read -r backup; do
+      rm -rf "$backup"
+      log "pruned $backup"
     done
   done
-  git -C "$REPO" for-each-ref --sort=-committerdate --format='%(refname:short)' \
-    'refs/heads/backup/features-tiliakoos-*' | tail -n +$((KEEP + 1)) | while IFS= read -r branch; do
-    git -C "$REPO" branch -q -D "$branch" && log "pruned branch $branch"
+  git -C "$REPO" for-each-ref --sort=committerdate --format='%(refname:short)' \
+    'refs/heads/backup/features-tiliakoos-*' | while IFS= read -r branch; do
+    day=${branch#backup/features-tiliakoos-}
+    echo "${day:0:4} $branch"
+  done | stale | while IFS= read -r branch; do
+    if git -C "$REPO" branch -q -D "$branch"; then log "pruned branch $branch"; fi
   done
 }
 
