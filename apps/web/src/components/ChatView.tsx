@@ -2542,7 +2542,6 @@ export default function ChatView(props: ChatViewProps) {
       return {
         id: `project-clone:${projectId}`,
         variant: "info",
-        compact: true,
         priority: "activity",
         icon: <DownloadIcon />,
         title: `Cloning ${name}`,
@@ -2566,7 +2565,6 @@ export default function ChatView(props: ChatViewProps) {
     return {
       id: `project-clone:${projectId}`,
       variant: cancelled ? "warning" : "error",
-      compact: true,
       icon: <DownloadIcon />,
       title: cancelled ? `Cancelled cloning ${name}` : `Failed to clone ${name}`,
       description: cancelled ? "Retry to bring in the repository." : activeProjectClone.error,
@@ -6056,6 +6054,13 @@ export default function ChatView(props: ChatViewProps) {
     if (!activeThreadRef) return;
     useRightPanelStore.getState().toggleThreadPanel(activeThreadRef, threadPanelPresentation);
   }, [activeThreadRef, threadPanelPresentation]);
+  // A thread started for a link the OS opened shows its browser maximized, like a browser window.
+  useEffect(() => {
+    if (!canMaximizeRightPanel) return;
+    if (useRightPanelStore.getState().consumeMaximizeRequest(routeThreadRef)) {
+      setMaximizedRightPanelThreadKey(routeThreadKey);
+    }
+  }, [canMaximizeRightPanel, routeThreadKey, routeThreadRef]);
   const toggleRightPanelMaximized = useCallback(() => {
     if (!canMaximizeRightPanel) return;
     setMaximizedRightPanelThreadKey((threadKey) =>
@@ -7801,6 +7806,7 @@ export default function ChatView(props: ChatViewProps) {
       {
         id: `branch-mismatch:${activeBranchMismatchKey}`,
         variant: "info",
+        compact: true,
         icon: <GitBranchIcon />,
         title: (
           <span className="flex min-w-0 items-baseline gap-1.5">
@@ -8808,7 +8814,8 @@ export default function ChatView(props: ChatViewProps) {
       });
       return;
     }
-    if (activePendingProgress) {
+    const sendCtx = composerRef.current?.getSendContext();
+    if (activePendingProgress && sendCtx?.answeringPendingUserInput !== false) {
       if (directAnnotation) {
         notifyDirectAnnotationAttached();
         return;
@@ -8816,7 +8823,6 @@ export default function ChatView(props: ChatViewProps) {
       onAdvanceActivePendingUserInput();
       return;
     }
-    const sendCtx = composerRef.current?.getSendContext();
     if (!sendCtx?.providerAvailable) {
       notifyDirectAnnotationAttached();
       return;
@@ -11307,6 +11313,8 @@ export default function ChatView(props: ChatViewProps) {
             isServerThread={isServerThread}
             activeThreadTitle={activeThread.title}
             activeProject={activeProject ?? null}
+            parentThreadLink={parentThreadLink}
+            onOpenThread={onOpenRelatedThread}
             rightPanelOpen={inlineRightPanelOwnsTitleBar}
             onNewThreadInProject={handleNewThreadInActiveProject}
             {...(activeDraftLogicalProjectKey
@@ -11771,7 +11779,7 @@ export default function ChatView(props: ChatViewProps) {
                               aria-hidden={showComposerModelStrip ? undefined : true}
                               inert={showComposerModelStrip ? undefined : true}
                               className={cn(
-                                "ps-2 group-data-model-strip-transition/composer-surface:before:backdrop-blur-(--glass-blur) group-data-model-strip-transition/composer-surface:before:bg-(--chat-composer-glass-surface)/(--glass-opacity)",
+                                "group-data-model-strip-transition/composer-surface:before:backdrop-blur-(--glass-blur) group-data-model-strip-transition/composer-surface:before:bg-(--chat-composer-glass-surface)/(--glass-opacity)",
                                 !showComposerModelStrip &&
                                   "pointer-events-none invisible absolute inset-x-0 top-full",
                               )}
