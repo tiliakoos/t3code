@@ -24,7 +24,8 @@ for arg in "$@"; do
   esac
 done
 
-git fetch -q upstream --tags
+# --force: upstream moves floating tags such as android-nightly, and refusing one fails the fetch.
+git fetch -q --force upstream --tags
 LATEST=$(git tag -l 'v*-nightly.*' | sort -V | tail -1)
 CURRENT=$(git tag --merged "$BRANCH" -l 'v*-nightly.*' | sort -V | tail -1)
 INSTALLED=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist" 2>/dev/null || echo none)
